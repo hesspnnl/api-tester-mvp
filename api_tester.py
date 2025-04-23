@@ -75,7 +75,7 @@ def create_code_node(state: State) -> Command[Literal["__end__"]]:
     state["from_create_code_node"] = True
     print("Debug create code - State from_create_code_node", state["from_create_code_node"])  # Add debug print
     result = create_api_code_agent.invoke(state)
-    code_content = result["messages"][-1].content
+    code_content = result["messages"][-1].content.strip()
     # Save the code to a file
     save_api_code(code_content, "generated_api.py")
     return Command(
