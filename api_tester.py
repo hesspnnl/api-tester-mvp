@@ -70,14 +70,24 @@ class State(TypedDict):
     messages: Annotated[list, add_messages]
     
     from_create_code_node: bool  # Track the transition source
-
 def create_code_node(state: State) -> Command[Literal["__end__"]]:
     state["from_create_code_node"] = True
     print("Debug create code - State from_create_code_node", state["from_create_code_node"])  # Add debug print
-    result = create_api_code_agent.invoke(state)
-    code_content = result["messages"][-1].content.strip()
-    # Save the code to a file
-    save_api_code(code_content, "generated_api.py")
+    try:
+        result = create_api_code_agent.invoke(state)
+        code_content = result["messages"][-1].content.strip()
+        # Save the code to a file
+        save_api_code(code_content, "generated_api.py")
+    except Exception as e:
+        print(f"Error during create_code_node invoke: {e}")
+        return Command(
+            update={
+                "messages": [
+                    AIMessage(content=f"Error generating code: {str(e)}", name="create_code_node")
+                ]
+            },
+            goto="__end__",
+        )
     return Command(
         update={
             "messages": [
@@ -89,12 +99,23 @@ def create_code_node(state: State) -> Command[Literal["__end__"]]:
 
 def create_api_spec_node(state: State) -> Command[Literal["__end__"]]:
     print("Debug create spec - State received.")  # Add debug print
-    result = create_api_spec_agent.invoke(state)
-
+    try:
+        result = create_api_spec_agent.invoke(state)
+        content = result["messages"][-1].content.strip()
+    except Exception as e:
+        print(f"Error during create_api_spec_node invoke: {e}")
+        return Command(
+            update={
+                "messages": [
+                    AIMessage(content=f"Error generating API spec: {str(e)}", name="create_api_spec_node")
+                ]
+            },
+            goto="__end__",
+        )
     return Command(
         update={
             "messages": [
-                AIMessage(content=result["messages"][-1].content, name="create_api_spec_node")
+                AIMessage(content=content, name="create_api_spec_node")
             ]
         },
         goto="create_code_node",
@@ -111,35 +132,49 @@ def create_api_tests_node(state: State) -> Command[Literal["__end__"]]:
         # Update state with API code
         state["messages"].append({
             "role": "user",
-            "content": f"Generate pytest tests for this FastAPI code:\n\n{api_code}"
+            "content": f"Generate pytest tests for this FastAPI code:\n\n{api_code}".strip()
         })
         
         # Generate tests
-        result = create_api_tests_agent.invoke(state)
-        test_content = result["messages"][-1].content
-        
-        # Save the tests
-        save_api_code(test_content, "generated_api_tests.py")
-        
-        return Command(
-            update={
-                "messages": [
-                    AIMessage(
-                        content=f"API tests have been generated and saved to generated_api_tests.py\n\n{test_content}",
-                        name="create_api_tests_node"
-                    )
-                ]
-            },
-            goto="__end__",
-        )
+        try:
+            result = create_api_tests_agent.invoke(state)
+            test_content = result["messages"][-1].content.strip()
+            
+            # Save the tests
+            save_api_code(test_content, "generated_api_tests.py")
+            
+            return Command(
+                update={
+                    "messages": [
+                        AIMessage(
+                            content=f"API tests have been generated and saved to generated_api_tests.py\n\n{test_content}",
+                            name="create_api_tests_node"
+                        )
+                    ]
+                },
+                goto="__end__",
+            )
+        except Exception as e:
+            print(f"Error during create_api_tests_node invoke: {e}")
+            return Command(
+                update={
+                    "messages": [
+                        AIMessage(
+                            content=f"Error generating tests: {str(e)}",
+                            name="create_api_tests_node"
+                        )
+                    ]
+                },
+                goto="__end__",
+            )
     
     except Exception as e:
-        print(f"Error generating tests: {e}")
+        print(f"Error reading generated API code: {e}")
         return Command(
             update={
                 "messages": [
                     AIMessage(
-                        content=f"Error generating tests: {str(e)}",
+                        content=f"Error reading generated API code: {str(e)}",
                         name="create_api_tests_node"
                     )
                 ]
@@ -149,22 +184,32 @@ def create_api_tests_node(state: State) -> Command[Literal["__end__"]]:
 
 def create_refinement_node(state: State) -> Command[Literal["__end__"]]:
     print("Debug refinement - State received.")
-
-    result = create_refinement_agent.invoke(state)
-    code_content = result["messages"][-1].content
-    
-    if state["from_create_code_node"]:
-        save_api_code(code_content, "generated_api.py")
-        state["from_create_code_node"] = False
-        next_node = "create_api_tests_node"
-    else:
-        save_api_code(code_content, "generated_api_tests.py")
-        next_node = "__end__"
+    try:
+        result = create_refinement_agent.invoke(state)
+        code_content = result["messages"][-1].content.strip()
+        
+        if state["from_create_code_node"]:
+            save_api_code(code_content, "generated_api.py")
+            state["from_create_code_node"] = False
+            next_node = "create_api_tests_node"
+        else:
+            save_api_code(code_content, "generated_api_tests.py")
+            next_node = "__end__"
+    except Exception as e:
+        print(f"Error during create_refinement_node invoke: {e}")
+        return Command(
+            update={
+                "messages": [
+                    AIMessage(content=f"Error refining code: {str(e)}", name="create_refinement_node")
+                ]
+            },
+            goto="__end__",
+        )
 
     return Command(
         update={
             "messages": [
-                AIMessage(content=result["messages"][-1].content, name="create_refinement_node")
+                AIMessage(content=result["messages"][-1].content.strip(), name="create_refinement_node")
             ]
         },
         goto=next_node,
